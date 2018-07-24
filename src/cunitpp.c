@@ -263,8 +263,9 @@ static int SymbolBegin( void* d , const char* name ) {
     case ST_SIMPLE_TEST:
     case ST_FIXTURE_TEST:
       {
-        ModuleEntry* me = FindOrAddModule(gen,sn.module,
-                                              gen->tt == ST_SIMPLE_TEST ? TT_SIMPLE : TT_FIXTURE );
+        ModuleEntry* me = FindOrAddModule(gen,
+                                          sn.module,
+                                          gen->tt == ST_SIMPLE_TEST ? TT_SIMPLE : TT_FIXTURE);
         if(me) {
           if(!me->module)
             me->module = sn.module;
@@ -287,11 +288,12 @@ static int SymbolBegin( void* d , const char* name ) {
         ModuleEntry* me = FindOrAddModule(gen,sn.module,TT_FIXTURE);
         if(me) {
           if(me) {
-            if(!me->module)
+            if(!me->module) {
               me->module = sn.module;
-            else
-              free((void*)sn.module);
-
+              free((void*)sn.name);
+            } else {
+              FreeSymbolName(&sn);
+            }
             gen->cur.module = me;
             goto cont;
           }
@@ -336,6 +338,10 @@ static int OnSymbol  ( void* d , void* addr , int weak ) {
 
 static void SymbolEnd( void* d ) {
   (void)d;
+}
+
+static void ShowSeparator() {
+  ColorFPrintf(stderr,"Bold","Megenta",NULL,"[---------]\n");
 }
 
 static void PrepareTestPlan( struct ProcInfo* pinfo , TestPlan* tp ,
@@ -454,7 +460,7 @@ static int RunTestPlan( const TestPlan* tp ) {
       default:
         break;
     }
-    fprintf(stderr,"\n");
+    ShowSeparator();
   }
   return rcode;
 }
@@ -549,7 +555,7 @@ static int ListAllTest( int opt ) {
         }
         break;
     }
-    fprintf(stderr,"\n");
+    ShowSeparator();
   }
 
   DeleteProcInfo(pinfo);
@@ -654,9 +660,9 @@ static int ParseCommandLine( int argc , char** argv , CmdOption* opt ) {
     if(strcmp(argv[i],"--help") == 0) {
       ShowHelp("cunitpp help:");
       goto fail;
-    } else if(strcmp(argv[i],"--list-tests") == 0) {
+    } else if(strcmp(argv[i],"--list-test") == 0) {
       if(opt->list != -1) {
-        ShowHelp("--list-tests duplicated");
+        ShowHelp("--list-test duplicated");
         goto fail;
       }
       opt->list = 1;
@@ -711,7 +717,7 @@ void _CUnitAssert( const char* file , int line , const char* format , ... ) {
   nret = snprintf(buf,1024,"Assertion failed around %d:%s => ",line,file);
   fwrite  (buf,nret,1,stderr);
   vfprintf(stderr,format,vl);
-  longjmp(kTestEnv,1);
+  longjmp (kTestEnv,1);
 }
 
 int main( int argc , char* argv[] ) {
