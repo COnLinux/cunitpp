@@ -50,10 +50,9 @@ The assertion internally is implemented via setjmp/longjmp to achieve C style ex
 
 # Missing Feature
 
-1. Fixture
-2. Mock
-3. Benchmark
-4. Signal Handling
-5. Portable
+1. Mock
+2. Benchmark
+3. Signal Handling
+4. Portable
 
 In the future, all the above features will be implemented
