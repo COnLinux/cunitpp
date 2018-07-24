@@ -365,6 +365,14 @@ static void PrepareTestPlan( struct ProcInfo* pinfo , TestPlan* tp ,
   ForeachSymbol(pinfo,SymbolBegin,OnSymbol,SymbolEnd,&gen);
 }
 
+static void ShowError( const char* fmt , ... ) {
+  char buf[1024];
+  va_list vl;
+  va_start(vl,fmt);
+  vsnprintf(buf,1024,fmt,vl);
+  ColorFPrintf(stderr,"Bold","Red",NULL,"[ ERROR   ] %s\n",buf);
+}
+
 static int RunTest( void* address , FILE* file , const char* module ,
                                                  const char* name   ,
                                                  int            tt  ,
@@ -457,7 +465,7 @@ static int RunModuleTest( const char** module_list , int opt ) {
   int rcode;
 
   if((rcode = CreateProcInfo(getpid(),&pinfo,opt))) {
-    fprintf(stderr,"Cannot create ProcInfo object because of error code %d\n",rcode);
+    ShowError("Cannot create ProcInfo object because of error code %d\n",rcode);
     return -1;
   }
 
@@ -477,22 +485,23 @@ static int RunTestList( const char** test_list , int opt ) {
   struct ProcInfo* pinfo;
   int rcode = CreateProcInfo(getpid(),&pinfo,opt);
   if(rcode) {
-    fprintf(stderr,"Cannot create ProcInfo object beacuse of error code %d\n",rcode);
+    ShowError("Cannot create ProcInfo object because of error code %d\n",rcode);
     return -1;
   }
 
   for( ; *test_list ; ++test_list ) {
     void* address;
-    if(ExplodeSymbolName(*test_list,TT_SIMPLE,mod,sym,buf,1024)) {
-      fprintf(stderr,"Test %s is not a valid name\n",*test_list);
+    if(ExplodeSymbolName(*test_list,ST_SIMPLE_TEST,mod,sym,buf,1024)) {
+      ShowError("Test %s is not a valid name\n",*test_list);
       rcode = -1;
     } else {
       address = FindStrongSymbol(pinfo,buf);
       if(!address) {
-        fprintf(stderr,"Test %s is not found\n",*test_list);
+        ShowError("Test %s is not found\n",*test_list);
         rcode = -1;
+      } else {
+        RunTest(address,stderr,mod,sym,TT_SIMPLE,NULL);
       }
-      RunTest(address,stderr,mod,sym,TT_SIMPLE,NULL);
     }
   }
 
@@ -506,7 +515,7 @@ static int ListAllTest( int opt ) {
   struct ProcInfo* pinfo;
   int rcode = CreateProcInfo(getpid(),&pinfo,opt);
   if(rcode) {
-    fprintf(stderr,"Cannot create ProcInfo because of error code %d\n",rcode);
+    ShowError("Cannot create ProcInfo object because of error code %d\n",rcode);
     return -1;
   }
 
@@ -570,7 +579,7 @@ static void DeleteCmdOption( CmdOption* opt ) {
   if(opt->test_list  ) FreeStrList(opt->test_list  );
 }
 
-static void ShowError( const char* fmt , ... ) {
+static void ShowHelp( const char* fmt , ... ) {
   static const char* kError =
     "  --list-tests:\n"
     "    Show all tests in different module\n"
@@ -643,37 +652,37 @@ static int ParseCommandLine( int argc , char** argv , CmdOption* opt ) {
 
   for( ; i < argc ; ++i ) {
     if(strcmp(argv[i],"--help") == 0) {
-      ShowError("cunitpp help:");
+      ShowHelp("cunitpp help:");
       goto fail;
     } else if(strcmp(argv[i],"--list-tests") == 0) {
       if(opt->list != -1) {
-        ShowError("--list-tests duplicated");
+        ShowHelp("--list-tests duplicated");
         goto fail;
       }
       opt->list = 1;
     } else if(strcmp(argv[i],"--module-list") == 0) {
       if(opt->module_list != NULL) {
-        ShowError("--module-list duplicated");
+        ShowHelp("--module-list duplicated");
         goto fail;
       }
       if(i+1 == argc) {
-        ShowError("expect a argument after --module-list");
+        ShowHelp("expect a argument after --module-list");
         goto fail;
       }
       opt->module_list = ParseCommaList(argv[++i]);
     } else if(strcmp(argv[i],"--test-list") == 0) {
       if(opt->test_list != NULL) {
-        ShowError("--test-list duplicated");
+        ShowHelp("--test-list duplicated");
         goto fail;
       }
       if(i+1 == argc) {
-        ShowError("expect a argument after --test-list");
+        ShowHelp("expect a argument after --test-list");
         goto fail;
       }
       opt->test_list = ParseCommaList(argv[++i]);
     } else if(strcmp(argv[i],"--option") == 0) {
       if(i+1 == argc) {
-        ShowError("expect a argument after --option");
+        ShowHelp("expect a argument after --option");
         goto fail;
       }
       if(strcmp(argv[++i],"All") == 0) {
@@ -682,7 +691,7 @@ static int ParseCommandLine( int argc , char** argv , CmdOption* opt ) {
         opt->opt = PINFO_SRCH_MAIN_ONLY;
       }
     } else {
-      ShowError("unknown option %s",argv[i]);
+      ShowHelp("unknown option %s",argv[i]);
       goto fail;
     }
   }
