@@ -235,7 +235,7 @@ static void RunTestPlan    ( const TestPlan* tp ) {
   }
 }
 
-void RunAllModuleTest() {
+static void RunAllModuleTest() {
   struct ProcInfo* pinfo;
   TestPlan tp;
   int rcode = CreateProcInfo(getpid(),&pinfo,PINFO_SRCH_MAIN_ONLY);
@@ -247,4 +247,11 @@ void RunAllModuleTest() {
   RunTestPlan(&tp);
   DeleteTestPlan(&tp);
   DeleteProcInfo(pinfo);
+}
+
+int main( int argc , char* argv[] ) {
+  (void)argc;
+  (void)argv;
+  RunAllModuleTest();
+  return 0;
 }

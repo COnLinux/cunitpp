@@ -110,10 +110,8 @@ static const char* FReadLine( FILE* f ) {
 
   if(ferror(f)) {
     free(buf);
-    return NULL;
-  }
-
-  if(feof(f)) {
+    buf = NULL;
+  } else if(feof(f)) {
     buf[pos] = 0;
   }
 
@@ -373,11 +371,20 @@ static void LoadElfSection( Elf* elf , struct ProcInfo* pinfo , ModuleInfo* mod 
             continue; // none function type
           }
 
+#ifndef CONFIG_ALLOW_WEAK_FUNCTION
+          if(ELF64_ST_BIND(elf_sym->st_info) == STB_WEAK) continue;
+#endif // CONFIG_ALLOW_WEAK_FUNCTION
+
           // now we have a function symbol here
           name = elf_strptr(elf,elf_shdr->sh_link,(size_t)(elf_sym->st_name));
           si   = SymbolInsert(pinfo,name);
 
+#ifdef CONFIG_ALLOW_WEAK_FUNCTION
           si->weak = ELF64_ST_BIND(elf_sym->st_info) == STB_WEAK;
+#else
+          si->weak = 0;
+#endif // CONFIG_ALLOW_WEAK_FUNCTION
+
           si->mod  = mod;
           si->base = elf_sym->st_value + offset;
         }

@@ -2,8 +2,6 @@
 #include <stdio.h>
 #include <unistd.h>
 
-extern void RunAllModuleTest();
-
 TEST(Lexer,Test1) {
   printf("coo\n");
   return 0;
@@ -16,7 +14,6 @@ TEST(Lexer,Test2) {
 
 TEST(Lexer,Name) {
   printf("Hello World\n");
-
   return 0;
 }
 
@@ -27,10 +24,5 @@ TEST(Parser,Name) {
 
 TEST(Executer,Namexxx) {
   printf("xxxx\n");
-  return 0;
-}
-
-int main() {
-  RunAllModuleTest();
   return 0;
 }
