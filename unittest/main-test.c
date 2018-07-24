@@ -3,26 +3,22 @@
 #include <unistd.h>
 
 TEST(Lexer,Test1) {
-  printf("coo\n");
-  return 0;
+  ASSERT_EQ  (2,2);
 }
 
 TEST(Lexer,Test2) {
-  printf("cooXX\n");
-  return 0;
+  ASSERT_EQ  (1,1);
 }
 
 TEST(Lexer,Name) {
-  printf("Hello World\n");
-  return 0;
+  ASSERT_TRUE(1==1);
+  ASSERT_STREQ("a","a");
 }
 
 TEST(Parser,Name) {
-  printf("XXX\n");
-  return 0;
+  ASSERT_TRUE(1 < 2);
 }
 
 TEST(Executer,Namexxx) {
-  printf("xxxx\n");
-  return 0;
+  ASSERT_FALSE(2 > 3);
 }

@@ -7,8 +7,12 @@
 const char* SubStr( const char* , const char* );
 
 // A printer function to help print colorful text into the termainal/console.
-// User can use special marker like @red { ... }  to mark a section of the text
-// to be certain color.
-void ColorFPrintf( FILE* , const char* , ... );
+void ColorFPrintf( FILE* , const char* format , const char* fg ,
+                                                const char* bg ,
+                                                const char*    ,
+                                                ...             );
+
+// Get the array's size
+#define ARRAY_SIZE(V) (sizeof((V))/sizeof((V)[0]))
 
 #endif // UTIL_H_
