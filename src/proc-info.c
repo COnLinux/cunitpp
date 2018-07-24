@@ -253,9 +253,9 @@ static SymbolEntry* _SymbolFindEntry( struct ProcInfo* pinfo ,
   if(opt == OPT_QUERY) return NULL;
 
   // do a linear probing to find an empty slot to do the insertion
-  do {
+  do
     entry = pinfo->entry + (++hash & pinfo->mask);
-  } while(entry->name);
+  while(entry->name);
 
   prev->chain = entry;
   return entry;

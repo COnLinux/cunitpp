@@ -11,10 +11,34 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef void (*TestCase)();
+// Simple Test function prototype
+typedef void (*SimpleTest)();
+
+// Fixture Test function prototype
+typedef void* (*FixtureSetup   )();
+typedef void  (*FixtureTest    )(void*);
+typedef void  (*FixtureTearDown)(void*);
 
 // Use to simulate exception in C
 static jmp_buf kTestEnv;
+
+// Define test type that supported by the framework
+#define TT_UNKNOWN (0)
+#define TT_SIMPLE  (1)
+#define TT_FIXTURE (2)
+
+// Internal used symbol name type
+#define ST_UNKNOWN         (-1)
+#define ST_SIMPLE_TEST      (0)
+#define ST_FIXTURE_SETUP    (1)
+#define ST_FIXTURE_TEARDOWN (2)
+#define ST_FIXTURE_TEST     (3)
+
+enum {
+  ST_INIT,
+  ST_SKIP,
+  ST_FOUND
+};
 
 typedef struct _SymbolName {
   const char* module;
@@ -33,8 +57,12 @@ typedef struct _TestEntryArray {
 } TestEntryArray;
 
 typedef struct _ModuleEntry {
-  const char* module;
+  const char*    module;
   TestEntryArray arr;
+  int tt;
+  // only used for fixture test
+  FixtureSetup    setup;
+  FixtureTearDown tear_down;
 } ModuleEntry;
 
 typedef struct _TestPlan  {
@@ -43,34 +71,30 @@ typedef struct _TestPlan  {
   size_t          cap;
 } TestPlan;
 
-enum {
-  ST_INIT,
-  ST_SKIP,
-  ST_FOUND
-};
-
 typedef struct _TestPlanGenerator {
   TestPlan*    plan;
   // context variables
-  TestEntry*   cur_entry;
-  int          status;
-  const char*  prefix;
-  const char*  separator;
+  int          tt;
+  union {
+    TestEntry*      entry;
+    ModuleEntry*    module;
+  } cur;
+
   int          run_all;
 } TestPlanGenerator;
 
-/* ---------------------------------------------------------
- * Assertion Helper                                        |
- * --------------------------------------------------------*/
-void _CUnitAssert( const char* file , int line , const char* format , ... ) {
-  char buf[1024];
-  va_list vl;
-  size_t nret;
-  va_start(vl,format);
-  nret = snprintf(buf,1024,"Assertion failed around %d:%s => ",line,file);
-  fwrite  (buf,nret,1,stderr);
-  vfprintf(stderr,format,vl);
-  longjmp(kTestEnv,1);
+static const char* GetTTName( int tt ) {
+  switch(tt) {
+    case TT_SIMPLE:  return "T";
+    case TT_FIXTURE: return "F";
+    default:         return NULL;
+  }
+}
+
+static uint64_t TimeGetNow() {
+  struct timespec res;
+  clock_gettime(CLOCK_MONOTONIC,&res);
+  return res.tv_sec * 1000 + res.tv_nsec /1000000;
 }
 
 static void FreeSymbolName( SymbolName* name ) {
@@ -78,39 +102,62 @@ static void FreeSymbolName( SymbolName* name ) {
   free((void*)(name->name  ));
 }
 
-static int ParseSymbolName( const char* name , const char* prefix ,
-                                               const char* sep    ,
-                                               SymbolName* output  ) {
-  if(strstr(name,prefix) == name) {
-    const char* sep_pos;
-    name += strlen(prefix); // advance to skip the prefix
-    if((sep_pos = strstr(name,sep))) {
-      output->module = SubStr(name,sep_pos);
-      sep_pos += strlen(sep);
-      output->name   = strdup(sep_pos);
-      return 0;
+// resolve the symbol to check whether it is a unknown symbol to our framework
+static int ParseSymbolName( const char* name , SymbolName* output ) {
+  int tt;
+  const char* p;
+
+  // check whether the symbol has our designed the prefix, if not then
+  // just return it is not known to the framework
+  if(strstr(name,CUNIT_SYMBOL_PREFIX) == name) {
+    name += strlen(CUNIT_SYMBOL_PREFIX); // advance and look for the meta character
+    switch(*name) {
+      case CUNIT_SIMPLE_TEST     : tt = ST_SIMPLE_TEST;      break;
+      case CUNIT_FIXTURE_TEST    : tt = ST_FIXTURE_TEST;     break;
+      case CUNIT_FIXTURE_SETUP   : tt = ST_FIXTURE_SETUP;    break;
+      case CUNIT_FIXTURE_TEARDOWN: tt = ST_FIXTURE_TEARDOWN; break;
+      default: goto unknown;
+    }
+
+    name ++; // skip the meta character
+    p = strstr(name,CUNIT_MODULE_SEPARATOR);
+    if(p) {
+      output->module = SubStr(name,p);
+      output->name   = strdup(p+strlen(CUNIT_MODULE_SEPARATOR));
+      return tt;
     }
   }
-  return -1;
+
+unknown:
+  return ST_UNKNOWN;
 }
 
-static int ExplodeSymbolName( const char* name , const char*  prefix,
-                                                 const char*  sep ,
+static int ExplodeSymbolName( const char* name , int           tt ,
                                                  char*        mod ,
                                                  char*        sym ,
                                                  char*        buf ,
                                                  size_t       len ) {
+
   const char* pend = strchr(name,'.');
   if(pend) {
     size_t sz = strlen(pend+1);
+    char   mt;
     memcpy(mod,name,pend-name);
     mod[pend-name] = 0;
     memcpy(sym,pend+1,sz);
     sym[sz] = 0;
-    snprintf(buf,len,"%s%s%s%s",prefix,mod,sep,sym);
+
+    switch(tt) {
+      case ST_SIMPLE_TEST     :  mt = CUNIT_SIMPLE_TEST;      break;
+      case ST_FIXTURE_TEST    :  mt = CUNIT_FIXTURE_TEST;     break;
+      case ST_FIXTURE_SETUP   :  mt = CUNIT_FIXTURE_SETUP;    break;
+      case ST_FIXTURE_TEARDOWN:  mt = CUNIT_FIXTURE_TEARDOWN; break;
+      default: return -1;
+    }
+    snprintf(buf,len,"%s%c%s%s%s",CUNIT_SYMBOL_PREFIX,mt,mod,CUNIT_MODULE_SEPARATOR,sym);
     return 0;
   }
-  return 1;
+  return -1;
 }
 
 // Parse a comma separated string into a list of string
@@ -179,46 +226,109 @@ static void DeleteTestPlan( TestPlan* p ) {
   p->size   = 0;
 }
 
-static int SymbolBegin( void* d , const char* name ) {
-  TestPlanGenerator* gen = d;
-  SymbolName sn;
-
-  gen->status= ST_INIT;
-
-  if(ParseSymbolName(name,gen->prefix,gen->separator,&sn)) {
-    gen->status= ST_SKIP;
-    return PINFO_FOREACH_BREAK;
-  }
-
-  // check it against module list
-  for( size_t i = 0 ; i < gen->plan->size; ++i ) {
+static ModuleEntry* FindOrAddModule( TestPlanGenerator* gen , const char* module, int tt ) {
+  size_t i;
+  for( i = 0 ; i < gen->plan->size ; ++i ) {
     ModuleEntry* me = gen->plan->module + i;
-    if(strcmp(me->module,sn.module) == 0) {
-      gen->cur_entry = AddTestEntry(&me->arr);
-      gen->cur_entry->name = sn.name;
-      free((void*)sn.module);
-      return PINFO_FOREACH_CONTINUE;
+    if(strcmp(me->module,module) == 0) {
+      if(me->tt != TT_UNKNOWN) {
+        if(me->tt != tt) {
+          return NULL;
+        }
+      } else {
+        me->tt = tt;
+      }
+      return me;
     }
   }
 
   if(gen->run_all) {
     ModuleEntry* me = AddModuleEntry(gen->plan);
-    me->module = sn.module;
-    gen->cur_entry = AddTestEntry(&(me->arr));
-    gen->cur_entry->name = sn.name;
-    return PINFO_FOREACH_CONTINUE;
-  } else {
-    FreeSymbolName(&sn);
-    gen->status = ST_SKIP;
-    return PINFO_FOREACH_BREAK;
+    me->tt = tt;
+    return me;
   }
+
+  return NULL;
+}
+
+static int SymbolBegin( void* d , const char* name ) {
+  TestPlanGenerator* gen = d;
+  SymbolName sn;
+
+  gen->tt = ParseSymbolName(name,&sn);
+
+  switch(gen->tt) {
+    case ST_UNKNOWN    :
+      goto brk;
+    case ST_SIMPLE_TEST:
+    case ST_FIXTURE_TEST:
+      {
+        ModuleEntry* me = FindOrAddModule(gen,sn.module,
+                                              gen->tt == ST_SIMPLE_TEST ? TT_SIMPLE : TT_FIXTURE );
+        if(me) {
+          if(!me->module)
+            me->module = sn.module;
+          else
+            free((void*)sn.module);
+
+          gen->cur.entry = AddTestEntry(&me->arr);
+          gen->cur.entry->name = sn.name;
+          goto cont;
+        } else {
+          FreeSymbolName(&sn);
+          goto brk;
+        }
+      }
+      break;
+
+    case ST_FIXTURE_SETUP:
+    case ST_FIXTURE_TEARDOWN:
+      {
+        ModuleEntry* me = FindOrAddModule(gen,sn.module,TT_FIXTURE);
+        if(me) {
+          if(me) {
+            if(!me->module)
+              me->module = sn.module;
+            else
+              free((void*)sn.module);
+
+            gen->cur.module = me;
+            goto cont;
+          }
+        } else {
+          FreeSymbolName(&sn);
+          goto brk;
+        }
+      }
+      break;
+    default:
+      break;
+  }
+
+cont:
+  return PINFO_FOREACH_CONTINUE;
+
+brk:
+  return PINFO_FOREACH_BREAK;
 }
 
 static int OnSymbol  ( void* d , void* addr , int weak ) {
   TestPlanGenerator* gen = d;
   if(!weak) {
-    gen->cur_entry->address = addr;
-    gen->status = ST_FOUND;
+    switch(gen->tt) {
+      case ST_SIMPLE_TEST:
+      case ST_FIXTURE_TEST:
+        gen->cur.entry->address    = addr;
+        break;
+      case ST_FIXTURE_SETUP:
+        gen->cur.module->setup     = addr;
+        break;
+      case ST_FIXTURE_TEARDOWN:
+        gen->cur.module->tear_down = addr;
+        break;
+      default:
+        break;
+    }
     return PINFO_FOREACH_BREAK;
   }
   return PINFO_FOREACH_CONTINUE;
@@ -232,8 +342,7 @@ static void PrepareTestPlan( struct ProcInfo* pinfo , TestPlan* tp ,
                                                       const char** module_list ) {
   TestPlanGenerator gen;
   gen.plan        = tp;
-  gen.prefix      = CUNIT_SYMBOL_PREFIX;
-  gen.separator   = CUNIT_MODULE_SEPARATOR;
+
   // initialize the module entry
   if(module_list) {
     size_t sz = 0;
@@ -256,30 +365,40 @@ static void PrepareTestPlan( struct ProcInfo* pinfo , TestPlan* tp ,
   ForeachSymbol(pinfo,SymbolBegin,OnSymbol,SymbolEnd,&gen);
 }
 
-static uint64_t TimeGetNow() {
-  struct timespec res;
-  clock_gettime(CLOCK_MONOTONIC,&res);
-  return res.tv_sec * 1000 + res.tv_nsec /1000000;
-}
-
 static int RunTest( void* address , FILE* file , const char* module ,
-                                                 const char* name   ) {
-  TestCase tc = (TestCase)(address);
-  ColorFPrintf(stderr,"Bold","Blue",NULL,"[ RUN     ] ");
+                                                 const char* name   ,
+                                                 int            tt  ,
+                                                 void*          ctx  ) {
+  ColorFPrintf(stderr,NULL,"Blue",NULL,"[ RUN     ] ");
   fprintf     (stderr,"%s.%s\n",module,name);
 
   if(setjmp(kTestEnv) == 0) {
     uint64_t start,end;
 
     start = TimeGetNow();
-    tc();
+    switch(tt) {
+      case TT_SIMPLE:
+        {
+          SimpleTest tc = (SimpleTest)(address);
+          tc();
+        }
+        break;
+      case TT_FIXTURE:
+        {
+          FixtureTest ft = (FixtureTest)(address);
+          ft(ctx);
+        }
+        break;
+      default:
+        break;
+    }
     end   = TimeGetNow();
 
-    ColorFPrintf(stderr,"Bold","Green",NULL,"[      OK ] ");
+    ColorFPrintf(stderr,NULL,"Green",NULL,"[      OK ] ");
     fprintf     (stderr,"%s.%s (%lldms)\n",module,name,(long long int)(end-start));
     return 0;
   } else {
-    ColorFPrintf(stderr,"Bold","Red",NULL,"[    FAIL ] ");
+    ColorFPrintf(stderr,NULL,"Red",NULL,"[    FAIL ] ");
     fprintf     (stderr,"%s.%s\n",module,name);
     return -1;
   }
@@ -290,13 +409,42 @@ static int RunTestPlan( const TestPlan* tp ) {
   int rcode = 0;
   for( i = 0 ; i < tp->size ; ++i ) {
     ModuleEntry* me = tp->module + i;
-    ColorFPrintf(stderr,"Bold","Blue",NULL,"[ MODULE  ] ",me->module);
+    ColorFPrintf(stderr,NULL,"Blue",NULL,"[ SUITE(%s)] ",GetTTName(me->tt));
     fprintf     (stderr,"%s\n",me->module);
-    for( size_t j = 0 ; j < me->arr.size ; ++j ) {
-      TestEntry* t  = me->arr.arr + j;
-      if(t->address) {
-        rcode = RunTest(t->address,stderr,me->module,t->name);
-      }
+
+    switch(me->tt) {
+      case TT_SIMPLE:
+        for( size_t j = 0 ; j < me->arr.size ; ++j ) {
+          TestEntry* t  = me->arr.arr + j;
+          if(t->address) {
+            rcode = RunTest(t->address,stderr,me->module,t->name,TT_SIMPLE,NULL);
+          }
+        }
+        break;
+      case TT_FIXTURE:
+        {
+          void* ctx = NULL;
+
+          if(me->setup) {
+            ColorFPrintf(stderr,NULL,"Blue",NULL,"[ SETUP   ]\n");
+            ctx = me->setup();
+          }
+
+          for( size_t j = 0 ; j < me->arr.size ; ++j ) {
+            TestEntry* t = me->arr.arr + j;
+            if(t->address) {
+              rcode = RunTest(t->address,stderr,me->module,t->name,TT_FIXTURE,ctx);
+            }
+          }
+
+          if(me->setup && me->tear_down) {
+            ColorFPrintf(stderr,NULL,"Blue",NULL,"[ TEARDOWN]\n");
+            me->tear_down(ctx);
+          }
+        }
+        break;
+      default:
+        break;
     }
     fprintf(stderr,"\n");
   }
@@ -335,12 +483,7 @@ static int RunTestList( const char** test_list , int opt ) {
 
   for( ; *test_list ; ++test_list ) {
     void* address;
-    if(ExplodeSymbolName(*test_list,CUNIT_SYMBOL_PREFIX,
-                                    CUNIT_MODULE_SEPARATOR,
-                                    mod,
-                                    sym,
-                                    buf,
-                                    1024)) {
+    if(ExplodeSymbolName(*test_list,TT_SIMPLE,mod,sym,buf,1024)) {
       fprintf(stderr,"Test %s is not a valid name\n",*test_list);
       rcode = -1;
     } else {
@@ -349,7 +492,7 @@ static int RunTestList( const char** test_list , int opt ) {
         fprintf(stderr,"Test %s is not found\n",*test_list);
         rcode = -1;
       }
-      RunTest(address,stderr,mod,sym);
+      RunTest(address,stderr,mod,sym,TT_SIMPLE,NULL);
     }
   }
 
@@ -368,16 +511,34 @@ static int ListAllTest( int opt ) {
   }
 
   PrepareTestPlan(pinfo,&tp,NULL);
+
   for( i = 0 ; i < tp.size ; ++i ) {
     ModuleEntry* me = tp.module + i;
-    ColorFPrintf(stderr,"Bold","Green",NULL,"[ MODULE  ] ");
+    ColorFPrintf(stderr,NULL,"Green",NULL,"[ SUITE(%s)] ",GetTTName(me->tt));
     fprintf     (stderr,"%s\n",me->module);
-    for( size_t j = 0 ; j < me->arr.size ; ++j ) {
-      TestEntry* t = me->arr.arr + j;
-      if(t->address) {
-        ColorFPrintf(stderr,"Bold","Green",NULL,"[ TEST    ] ");
-        fprintf     (stderr,"%s.%s\n",me->module,t->name);
-      }
+
+    switch(me->tt) {
+      case TT_FIXTURE:
+        {
+          if(me->setup) {
+            ColorFPrintf(stderr,NULL,"Green",NULL,"[ SETUP   ]\n");
+          }
+          if(me->tear_down) {
+            ColorFPrintf(stderr,NULL,"Green",NULL,"[ TEARDOWN]\n");
+          }
+        }
+        // fallthrough
+      case TT_SIMPLE:
+        {
+          for( size_t j = 0 ; j < me->arr.size ; ++j ) {
+            TestEntry* t = me->arr.arr + j;
+            if(t->address) {
+              ColorFPrintf(stderr,NULL,"Green",NULL,"[ TEST    ] ");
+              fprintf     (stderr,"%s.%s\n",me->module,t->name);
+            }
+          }
+        }
+        break;
     }
     fprintf(stderr,"\n");
   }
@@ -411,24 +572,28 @@ static void DeleteCmdOption( CmdOption* opt ) {
 
 static void ShowError( const char* fmt , ... ) {
   static const char* kError =
-    "--list-tests:\n"
-    "  Show all tests in different module\n"
-    "--module-list:\n"
-    "  Specify a comma separated list to filter out specific tests to run\n"
-    "--test-list:\n"
-    "  Specify a comma separated list to filter out specific tests to run\n"
-    "--option:   \n"
-    "  Specify the searching option for test cases, the value can be *Main* or *All*.\n"
-    "  *Main* means only search this executable program ,*All* means search all the  \n"
-    "  shared object as well\n";
+    "  --list-tests:\n"
+    "    Show all tests in different module\n"
+    "\n"
+    "  --module-list:\n"
+    "    Specify a comma separated list to filter out specific tests to run\n"
+    "\n"
+    "  --test-list:\n"
+    "    Specify a comma separated list to filter out specific tests to run\n"
+    "\n"
+    "  --option:   \n"
+    "    Specify the searching option for test cases, the value can be *Main*\n"
+    "    or *All*.*Main* means only search this executable program and *All* \n"
+    "    means search all the shared object and the executable program\n";
 
   char buf[1024];
   va_list vl;
   va_start(vl,fmt);
   vsnprintf(buf,1024,fmt,vl);
 
-  fprintf(stderr,"%s\n",buf);
-  fprintf(stderr,"%s"  ,kError);
+  ColorFPrintf(stderr,NULL,"Red","Green",buf);
+  fprintf(stderr,"\n\n");
+  ColorFPrintf(stderr,NULL,"Blue",NULL ,kError);
 }
 
 static const char** ParseCommaList( const char* str ) {
@@ -478,7 +643,7 @@ static int ParseCommandLine( int argc , char** argv , CmdOption* opt ) {
 
   for( ; i < argc ; ++i ) {
     if(strcmp(argv[i],"--help") == 0) {
-      ShowError("help");
+      ShowError("cunitpp help:");
       goto fail;
     } else if(strcmp(argv[i],"--list-tests") == 0) {
       if(opt->list != -1) {
@@ -491,14 +656,26 @@ static int ParseCommandLine( int argc , char** argv , CmdOption* opt ) {
         ShowError("--module-list duplicated");
         goto fail;
       }
+      if(i+1 == argc) {
+        ShowError("expect a argument after --module-list");
+        goto fail;
+      }
       opt->module_list = ParseCommaList(argv[++i]);
     } else if(strcmp(argv[i],"--test-list") == 0) {
       if(opt->test_list != NULL) {
         ShowError("--test-list duplicated");
         goto fail;
       }
+      if(i+1 == argc) {
+        ShowError("expect a argument after --test-list");
+        goto fail;
+      }
       opt->test_list = ParseCommaList(argv[++i]);
     } else if(strcmp(argv[i],"--option") == 0) {
+      if(i+1 == argc) {
+        ShowError("expect a argument after --option");
+        goto fail;
+      }
       if(strcmp(argv[++i],"All") == 0) {
         opt->opt = PINFO_SRCH_ALL;
       } else {
@@ -515,6 +692,17 @@ static int ParseCommandLine( int argc , char** argv , CmdOption* opt ) {
 fail:
   DeleteCmdOption(opt);
   return -1;
+}
+
+void _CUnitAssert( const char* file , int line , const char* format , ... ) {
+  char buf[1024];
+  va_list vl;
+  size_t nret;
+  va_start(vl,format);
+  nret = snprintf(buf,1024,"Assertion failed around %d:%s => ",line,file);
+  fwrite  (buf,nret,1,stderr);
+  vfprintf(stderr,format,vl);
+  longjmp(kTestEnv,1);
 }
 
 int main( int argc , char* argv[] ) {
