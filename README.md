@@ -24,7 +24,7 @@ as google test. Example :
     ASSERT_TRUE(MyCoolFunction());
   }
 
-```
+````
 
 Save the above code in a file called test.cc and compile it and link against libcunitpp
 then run the output binary you will find your test function is executed. You don't need
