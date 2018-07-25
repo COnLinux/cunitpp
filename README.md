@@ -1,22 +1,13 @@
-cunitpp/cunit++ , a C unittest framework that works like google test
+C unittest framework
 ===========================================================================
 
 # Introduction
 
-This project provides an extreamly simple C unittest framework which looks almost
-like google test framework. Most of the C unittest framework needs some sort of
-test function registration . Basically you write a function to do your test but
-later on in certain function you have to provide the function pointer to the test
-framework to let it know which function is unittest function. In google test framework,
-user just needs to use macro TEST to write function test and it is automatically
-registered globally via C++'s static object's constructor function. But in C it is
-nearly impossible to achieve. The reason why this is important is if you have many
-unittest functions, the code that does the function pointer registeration becomes
-really tedious to maintain and easy to forget to register certain function for testing.
-It is nice to have a declarative way to write unittest function like google test.
-
-This project provides you with a extreamly simple way to write C unittest function same
-as google test. Example :
+Mimic google test framework in C , user only needs to use MACRO to write instrumented
+test function and the framework will figure out which function needs to be invoked as
+unittest function. The most striking difference between cunitpp and other C test framework
+is that user doesn't need to register function into framework but just a declarative
+way to write unittest. User doesn't allow to write main function as well.
 
 ````
   TEST(Module1,Test1) {
@@ -53,6 +44,3 @@ The assertion internally is implemented via setjmp/longjmp to achieve C style ex
 1. Mock
 2. Benchmark
 3. Signal Handling
-4. Portable
-
-In the future, all the above features will be implemented
