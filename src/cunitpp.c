@@ -590,10 +590,10 @@ static void ShowHelp( const char* fmt , ... ) {
     "  --list-tests:\n"
     "    Show all tests in different module\n"
     "\n"
-    "  --module-list:\n"
+    "  --module-filter:\n"
     "    Specify a comma separated list to filter out specific tests to run\n"
     "\n"
-    "  --test-list:\n"
+    "  --test-filter:\n"
     "    Specify a comma separated list to filter out specific tests to run\n"
     "\n"
     "  --option:   \n"
@@ -666,23 +666,23 @@ static int ParseCommandLine( int argc , char** argv , CmdOption* opt ) {
         goto fail;
       }
       opt->list = 1;
-    } else if(strcmp(argv[i],"--module-list") == 0) {
+    } else if(strcmp(argv[i],"--module-filter") == 0) {
       if(opt->module_list != NULL) {
-        ShowHelp("--module-list duplicated");
+        ShowHelp("--module-filter duplicated");
         goto fail;
       }
       if(i+1 == argc) {
-        ShowHelp("expect a argument after --module-list");
+        ShowHelp("expect a argument after --module-filter");
         goto fail;
       }
       opt->module_list = ParseCommaList(argv[++i]);
-    } else if(strcmp(argv[i],"--test-list") == 0) {
+    } else if(strcmp(argv[i],"--test-filter") == 0) {
       if(opt->test_list != NULL) {
-        ShowHelp("--test-list duplicated");
+        ShowHelp("--test-filter duplicated");
         goto fail;
       }
       if(i+1 == argc) {
-        ShowHelp("expect a argument after --test-list");
+        ShowHelp("expect a argument after --test-filter");
         goto fail;
       }
       opt->test_list = ParseCommaList(argv[++i]);
@@ -718,6 +718,53 @@ void _CUnitAssert( const char* file , int line , const char* format , ... ) {
   fwrite  (buf,nret,1,stderr);
   vfprintf(stderr,format,vl);
   longjmp (kTestEnv,1);
+}
+
+static const char* _StringEscape( const char* str ) {
+  char* buf  = malloc(1024);
+  size_t cap = 1023;
+  size_t pos = 0;
+  char    c1 = 0;
+  char    c2 = 0;
+
+  for( ; *str ; ++str ) {
+    switch(*str) {
+      case '\t': c1 = '\\'; c2 = 't'; break;
+      case '\r': c1 = '\\'; c2 = 'r'; break;
+      case '\n': c1 = '\\'; c2 = 'n'; break;
+      case '\v': c1 = '\\'; c2 = 'v'; break;
+      case '\b': c1 = '\\'; c2 = 'b'; break;
+      case '\\': c1 = '\\'; c2 = '\\';break;
+      case '"' : c1 = '\\'; c2 = '"'; break;
+      default:   c1 =    0; c2 = *str; break;
+    }
+
+    if(pos == cap) {
+      size_t ncap = (cap+1)*2;
+      buf         = realloc(buf,ncap);
+      cap         = ncap - 1;
+    }
+
+    if(c1)
+      buf[pos++] = c1;
+    buf[pos++] = c2;
+  }
+
+  buf[pos] = 0;
+  return buf;
+}
+
+void _CUnitAssertStrBin( const char* file , int line , const char* lhs ,
+                                                       const char* rhs ,
+                                                       const char*  op ) {
+  const char* elhs = _StringEscape(lhs);
+  const char* erhs = _StringEscape(rhs);
+  fprintf(stderr,"Assertion failed around %d:%s => "
+                 "String comaprison `\"%s\" %s \"%s\"` failed\n",line,file,elhs,op,erhs);
+  free((void*)elhs);
+  free((void*)erhs);
+
+  longjmp(kTestEnv,1);
 }
 
 int main( int argc , char* argv[] ) {

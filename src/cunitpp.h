@@ -41,15 +41,20 @@
 // This function will not abort the program
 void _CUnitAssert( const char* , int line , const char* , ... );
 
+// The assertion function to do string binary assertion. It will do string literal
+// escape to make it suitable to be printed in the terminal
+void _CUnitAssertStrBin( const char* , int line , const char* lhs ,
+                                                  const char* rhs ,
+                                                  const char*  op );
+
 #define _ASSERT_BINARY(LHS,RHS,OP)                         \
   ( ((LHS) OP (RHS)) ? (void)(0) : _CUnitAssert(__FILE__ , \
                                                 __LINE__ , \
     "Comparison `%s %s %s` failed\n", #LHS , #OP , #RHS) )
 
-#define _ASSERT_STR_BINARY(LHS,RHS,OP)                         \
-  ((strcmp((LHS),(RHS)) OP 0) ? (void)(0) : _CUnitAssert(    \
-    __FILE__,__LINE__,"String comparison `%s %s %s` failed\n", \
-    (LHS),#OP,(RHS)))
+#define _ASSERT_STR_BINARY(LHS,RHS,OP)                            \
+  ((strcmp((LHS),(RHS)) OP 0) ? (void)(0) : _CUnitAssertStrBin(   \
+    __FILE__,__LINE__,(LHS),(RHS),#OP))
 
 #define ASSERT_EQ(LHS,RHS) _ASSERT_BINARY(LHS,RHS,==)
 #define ASSERT_NE(LHS,RHS) _ASSERT_BINARY(LHS,RHS,!=)

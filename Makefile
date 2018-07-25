@@ -4,8 +4,6 @@ INCLUDE           =$(shell find src/ -type f -name "*.h")
 OBJECT            =${SOURCE:.c=.o}
 ASM               =$(shell find src/ -type f -name "*.S")
 ASMOBJECT         =${ASM:.S=.o}
-TEST              =$(shell find unittest/ -type f -name "*-test.c")
-TESTOBJECT        =${TEST:.c=.t}
 CC                = gcc
 NASM              = nasm
 #SANITIZER         =-fsanitize=address,undefined
@@ -16,6 +14,14 @@ LIBNAME           =lib$(PROGNAME).a
 CCFLAGS           =
 LDFLAGS           = -lelf
 
+# test
+TEST              =$(shell find unittest/ -type f -name "*-test.c")
+TESTOBJECT        =${TEST:.c=.t}
+
+# sample
+SAMPLE            =$(shell find sample/ -type f -name "*.c")
+SAMPLEOBJECT      =${SAMPLE:.c=.t}
+
 # -------------------------------------------------------------------------------
 #
 # Flags for different types of build
@@ -24,9 +30,11 @@ LDFLAGS           = -lelf
 RELEASE_FLAGS = -I$(PWD) -O3
 RELEASE_LIBS  =
 
-
-TEST_FLAGS        =-O0 -g3 -I./
+TEST_FLAGS        =-O0 -g3
 TEST_LIBS         =
+
+SAMPLE_FLAGS      =-O3 -g3
+SAMPLE_LIBS       =
 
 # -------------------------------------------------------------------------------
 #
@@ -54,6 +62,19 @@ test: $(TESTOBJECT)
 
 # -------------------------------------------------------------------------------
 #
+# Sample
+#
+# -------------------------------------------------------------------------------
+sample/%.t : sample/%.c $(ASMOBJECT) $(OBJECT) $(INCLUDE) $(SOURCE)
+	$(CC) $(CCFLAGS) $(OBJECT) $(ASMOBJECT) -o $@ $< $(LDFLAGS)
+
+sample: CCFLAGS += $(SAMPLE_FLAGS)
+sample: LDFLAGS += $(SAMPLE_LIBS)
+
+sample: $(SAMPLEOBJECT)
+
+# -------------------------------------------------------------------------------
+#
 #  Release
 #
 # -------------------------------------------------------------------------------
@@ -65,8 +86,15 @@ release: $(OBJECT) $(ASMOBJECT)
 
 all : release
 
+# ------------------------------------------------------------------------------
+#
+#  Prepare
+#
+# ------------------------------------------------------------------------------
+
 clean:
 	rm -rf $(OBJECT)
 	rm -rf $(ASMOBJECT)
 	rm -rf $(TESTOBJECT)
+	rm -rf $(SAMPLEOBJECT)
 	rm -rf $(LIBNAME)
