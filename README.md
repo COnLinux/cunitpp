@@ -7,12 +7,16 @@ Mimic google test framework in C , user only needs to use MACRO to write instrum
 test function and the framework will figure out which function needs to be invoked as
 unittest function. The most striking difference between cunitpp and other C test framework
 is that user doesn't need to register function into framework but just a declarative
-way to write unittest. User doesn't allow to write main function as well.
+way to write unittest.
 
 ````
   TEST(Module1,Test1) {
     ASSERT_EQ(1,1);
     ASSERT_TRUE(MyCoolFunction());
+  }
+
+  int main( int argc , char* argv[] ) {
+    return RunAllTests(argc,argv);
   }
 
 ````

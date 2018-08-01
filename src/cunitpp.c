@@ -767,7 +767,7 @@ void _CUnitAssertStrBin( const char* file , int line , const char* lhs ,
   longjmp(kTestEnv,1);
 }
 
-int main( int argc , char* argv[] ) {
+int RunAllTests( int argc , char* argv[] ) {
   CmdOption opt;
   int rcode;
 

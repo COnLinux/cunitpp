@@ -52,3 +52,7 @@ TEST(NegativeSuite1,T4) {
 TEST(NegativeSuite1,T5) {
   ASSERT_STRNE("a","a");
 }
+
+int main( int argc , char* argv[] ) {
+  return RunAllTests(argc,argv);
+}
