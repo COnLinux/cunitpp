@@ -10,17 +10,22 @@ NASM              = nasm
 RUNTIME_DEBUG     =-D_FORTIFY_SOURCE=2 -D_GLIBCC_ASSERTIONS
 PROGNAME          =cunitpp
 LIBNAME           =lib$(PROGNAME).a
+INCNAME           =cunitpp.h
 
 CCFLAGS           =
 LDFLAGS           = -lelf
 
 # test
-TEST              =$(shell find unittest/ -type f -name "*-test.c")
-TESTOBJECT        =${TEST:.c=.t}
+#TEST              =$(shell find unittest/ -type f -name "*-test.c")
+#TESTOBJECT        =${TEST:.c=.t}
 
 # sample
 SAMPLE            =$(shell find sample/ -type f -name "*.c")
 SAMPLEOBJECT      =${SAMPLE:.c=.t}
+
+# install
+INSTALL_INC_DIR   =/usr/include
+INSTALL_LIB_DIR   =/usr/lib
 
 # -------------------------------------------------------------------------------
 #
@@ -35,6 +40,8 @@ TEST_LIBS         =
 
 SAMPLE_FLAGS      =-O3 -g3
 SAMPLE_LIBS       =
+
+all : release
 
 # -------------------------------------------------------------------------------
 #
@@ -84,7 +91,19 @@ release: LDFLAGS  += $(RELEASE_LIBS)
 release: $(OBJECT) $(ASMOBJECT)
 	ar rcs $(LIBNAME) $(OBJECT) $(ASMOBJECT)
 
-all : release
+# -------------------------------------------------------------------------------
+#
+#  Release
+#
+# -------------------------------------------------------------------------------
+install : release
+	cp src/$(INCNAME) $(INSTALL_INC_DIR)/$(INCNAME)
+	cp $(LIBNAME)     $(INSTALL_LIB_DIR)/$(LIBNAME)
+
+.PHONY: uninstall
+uninstall :
+	rm -f $(INSTALL_INC_DIR)/$(INCNAME)
+	rm -f $(INSTALL_LIB_DIR)/$(LIBNAME)
 
 # ------------------------------------------------------------------------------
 #
