@@ -342,10 +342,10 @@ static void SymbolDelete( struct ProcInfo* pinfo ) {
 // Load a elf section from a openned elf stream
 static void LoadElfSection( Elf* elf , struct ProcInfo* pinfo , ModuleInfo* mod ,
                                                                 int (*predicate)(int) ,
-                                                                int bmain ) {
+                                                                int zero_offset ) {
   Elf_Scn*     elf_section = NULL;
   Elf64_Shdr*  elf_shdr;
-  uintptr_t    offset = bmain ? 0 : mod->start;
+  uintptr_t    offset = zero_offset ? 0 : mod->start;
 
   while((elf_section = elf_nextscn(elf,elf_section)) != NULL) {
     if((elf_shdr = elf64_getshdr(elf_section)) != NULL) {
@@ -403,7 +403,10 @@ static int _DynProgramElfPredicate ( int type ) {
 
 static int LoadElf( struct ProcInfo* pinfo , ModuleInfo* mod , int main ) {
   int fd = open(mod->path,O_RDONLY);
+  int zero_offset = 0;
   Elf* elf;
+  Elf64_Ehdr* e64_hdr;
+
   if(!fd) {
     return PINFO_CANNOT_OPEN_ELF;
   }
@@ -412,10 +415,28 @@ static int LoadElf( struct ProcInfo* pinfo , ModuleInfo* mod , int main ) {
   if(!elf) {
     goto fail;
   }
+
   if(main) {
-    LoadElfSection(elf,pinfo,mod,_MainProgramElfPredicate,main);
+    e64_hdr = elf64_getehdr(elf);
+    if(!e64_hdr) {
+      goto fail;
+    }
+
+    // now we check the type of the main executable. in ubuntu 18.04, the
+    // default entry executable is marked as DYN instead of executable that
+    // makes the linked object's address changed which result in segv.
+    if(e64_hdr->e_type != ET_EXEC) {
+      // this binary is not marked as executable but normally as a DYN
+      zero_offset = 0;
+    } else {
+      zero_offset = 1;
+    }
+  }
+
+  if(main) {
+    LoadElfSection(elf,pinfo,mod,_MainProgramElfPredicate,zero_offset);
   } else {
-    LoadElfSection(elf,pinfo,mod,_DynProgramElfPredicate ,main);
+    LoadElfSection(elf,pinfo,mod,_DynProgramElfPredicate ,zero_offset);
   }
 
   elf_end(elf);
